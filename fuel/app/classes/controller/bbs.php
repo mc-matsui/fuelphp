@@ -35,7 +35,8 @@ class Controller_Bbs extends Controller
 		//メールアドレスを入力必須、正しいメールアドレス形式かチェック
 		$val->add("email","メールアドレス")
 			->add_rule("required")
-			->add_rule("valid_email");
+			->add_rule("valid_email")
+			->add_rule("max_length" , 50);
 
 		//メッセージを入力必須、入力上限を200文字までにする
 		$val->add("message","内容")
