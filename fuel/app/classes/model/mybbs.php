@@ -23,6 +23,6 @@ class Model_Mybbs extends \Orm\Model
 		),
 	);
 
-	protected static $_table_name = 'mybbs';
+	protected static $_table_name = 'kadai_matsui_mybbs';
 
 }
