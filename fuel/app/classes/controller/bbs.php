@@ -93,7 +93,7 @@ class Controller_Bbs extends Controller
 		$config = array(
 				"pagination_url" => "http://dev3.m-craft.com/matsui/mc_kadai/kadai_fuel/bbs/index",
 				"url_segment" => 3,	//セグメント指定(bbs/indexの次の階層にページ指定)※bbsはコントローラー
-				"per_page" => 3,	//1ページでの表示件数
+				"per_page" => 10,	//1ページでの表示件数
 				"num_links" =>10,
 				"total_items" => $total,
 				"link_offset" => 1,
