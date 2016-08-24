@@ -24,13 +24,16 @@
 			</div>
 			<div class="panel-body">
 				<?php
-				//投稿が保存されたときのメッセージを保存
+				//例外の場合の処理
 				if (@$save)
 				{
 					print "<p class=\"alert alert-success\">" . $save . "</p>";
 				}
-				//エラー文表示
-				print Session::get_flash('error');
+
+				print $mem_version;
+
+				print Session::get_flash('error'); //エラー文表示
+				print Session::get_flash('success'); //投稿結果表示
 
 				//<form>開始
 				print Form::open(array('action' => 'bbs/index', 'method' => 'post'));
@@ -47,6 +50,17 @@
 						print Form::input("email", Input::post("email"), array('class' => 'form-control'));
 						?>
 					</div>
+					<div class="form-grop">
+						<?php
+						print Form::label("カテゴリ", "item")."<br>";
+						print Form::radio("item",1, true);
+						print Form::label(1, "item");
+						print Form::radio("item",2);
+						print Form::label(2, "item");
+						print Form::radio("item",3);
+						print Form::label(3, "item");
+						?>
+					</div>
 					<div class="form_group">
 						<?php
 						print Form::label("内容", "message");
@@ -57,9 +71,18 @@
 					//CSRF対策のトークン取得
 					print  Form::hidden($token_key, $token);
 					print  Form::submit("submit","投稿", array('class' => 'btn btn-default'));
-					print  Form::close();
-					?>
+				print  Form::close();
+				//</form>終了
+				?>
 			</div>
+		</div>
+		<hr>
+		<div>
+			<p>★カテゴリ数ランキング★</p>
+			<?php
+				//redisで実装したランキング表示
+				print $itemCount;
+			?>
 		</div>
 		<hr>
 		<?php
@@ -68,6 +91,7 @@
 			print "<div>";
 				print "<h4>" . $post->name . "</h4>";
 				print "<p>" . $post->email . "</p>";
+				print "<p><a href=\"?item=" . $post->item . "\">" . $post->item . "</a></p>";
 				print "<p>" . nl2br($post->message) . "</p>";
 			print "</div><hr>";
 		}

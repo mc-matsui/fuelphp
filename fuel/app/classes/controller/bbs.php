@@ -1,20 +1,18 @@
 <?php
-
+use Fuel\Core\Debug;
 class Controller_Bbs extends Controller
 {
-
 	public function action_index()
 	{
-
 		//フォームからPOST送信されたか判定※Input::method()のdefaultは'GET'
 		if (Input::method() === 'POST')
 		{
 			//CSRF対策
 			if (!Security::check_token())
 			{
-				//Response::redirect('http://localhost/fuelphp/bbs/index');
+				Response::redirect('http://localhost/fuelphp/bbs/index');
 				//本番
-				Response::redirect('http://dev3.m-craft.com/matsui/mc_kadai/kadai_fuel/bbs/index');
+				//Response::redirect('http://dev3.m-craft.com/matsui/mc_kadai/kadai_fuel/bbs/index');
 			}
 		}
 
@@ -40,77 +38,213 @@ class Controller_Bbs extends Controller
 
 		//メッセージを入力必須、入力上限を200文字までにする
 		$val->add("message","内容")
+			->add_rule("trim")
 			->add_rule("required")
 			->add_rule("max_length" , 200);
 
 		//フォームからPOST送信されたか判定
 		if (Input::method() === 'POST')
 		{
-			//Validationチェックが実行(成功) and ビューから送られてくるセキュリティー用トークンをチェック
-			if($val->run())
+			try
 			{
-				/*-----------------------------------
-				 * postされた各データをDBに保存
-				----------------------------------*/
-				//各送信データを配列
-				$props = array(
-						"name"		=> Input::post("name"),
-						"message"	=> Input::post("message"),
-						"email"		=> Input::post("email"),
-						"ip"		=> Input::real_ip(),
-				);
+				//トランザクション処理
+				$db = Database_Connection::instance();
+				$db->start_transaction();
 
-				//モデルオブジェクト作成
-				$new = Model_Mybbs::forge($props);
-
-				//データ保存する
-				if (!$new -> save())
+				//Validationチェックが実行(成功) and ビューから送られてくるセキュリティー用トークンをチェック
+				if($val->run())
 				{
-					//保存失敗
-					$data["save"] = "投稿できませんでした";
+					/*-----------------------------------
+					 * postされた各データをDBに保存
+					----------------------------------*/
+					//各送信データを配列
+					$props = array(
+							"name"		=> Input::post("name"),
+							"message"	=> Input::post("message"),
+							"email"		=> Input::post("email"),
+							"item"		=> Input::post("item"),
+							"ip"		=> Input::real_ip(),
+					);
+					//モデルオブジェクト作成
+					$new = Model_Mybbs::forge($props);
+
+					//データ保存成否判定
+					if (!$new -> save())
+					{
+						//投稿失敗
+						Session::set_flash('success', '投稿できませんでした');
+					}
+					else
+					{
+						//コミット&投稿成功
+						$db->commit_transaction();
+						Session::set_flash('success', '投稿しました');
+					}
+					//同セッションのため、コミット無でも一時的にSELECT表示されるためリダイレクト処理
+					//Response::redirect('http://localhost/fuelphp/bbs/index');
+					//本番
+					Response::redirect('http://dev3.m-craft.com/matsui/mc_kadai/kadai_fuel/bbs/index');
 				}
 				else
 				{
-					//保存成功
-					$data["save"] = "投稿しました";
-				}
+					// バリデーションNGの場合
+					Session::set_flash('error', $val->show_errors());
+				}	//$val->run()ここまで
+
 			}
-			else
+			catch (Exception $e)
 			{
-				// バリデーションNGの場合
-				Session::set_flash('error', $val->show_errors());
-			}	//$val->run()ここまで
+				$db->rollback_transaction();
+				$data["save"] = "例外エラーが発生しました。";
+			}
 		}
+
+		/**
+		 *  redisの使用
+		 */
+
+		//redisのオブジェクトを作成
+		$redis = new Redis();
+		$redis->connect("localhost",6379);
+
+		//削除する(rankingに格納された値をリセットする)
+		$redis->delete('ranking');
+		//$redis->flushall();
+
+		//$itemcCountの配列を初期化
+		$itemCount = array();
+
+		//itemカラムの番号(1～3)の総数それぞれ取得
+		for ($i=1; $i<=3; $i++)
+		{
+			$itemCount[$i] = count(Model_Mybbs::find('all', array(
+				'where' => array(
+					'item' => $i,
+				),
+			)));
+		}
+
+		//カテゴリ1～3にitemの数字をセット
+		$userPoint = array(
+			'カテゴリ１' => $itemCount[1],
+			'カテゴリ２' => $itemCount[2],
+			'カテゴリ３' => $itemCount[3],
+		);
+
+		// カテゴリの数をセットする
+		foreach( $userPoint as $user => $point )
+		{
+			//取得したitemデータが格納されているカテゴリを'rannking'にセット
+			$redis->zAdd('ranking', $point, $user );
+		}
+
+		// カテゴリの数が多い順に一覧を表示する('rannking'に格納された値を降順に取得)
+		$ranking = $redis->zRevRange( 'ranking', 0, -1, true );
+
+		//ランキング取得変数
+		$data["itemCount"] = "";
+
+		foreach($ranking as $user => $score )
+		{
+			//順位1位～3位を取得(総件数を取得するため「+inf」というキーワードを使用)
+			$data["itemCount"] .= ($redis->zCount('ranking', $score, '+inf'))."位：" . $user ." &nbsp;/&nbsp; ";
+		}
+
+		/**
+		 *  memcachedの使用
+		 */
+
+		//memcachedのオブジェクトを作成
+		$memcache = new Memcache;
+		$memcache->connect('localhost', 11211) or die ("接続できませんでした");
+		$version = $memcache->getVersion();
+		$data["mem_version"] = "memcached動作中！ / サーバのバージョン: ".$version;
+		//$memcache->close();
 
 		//ValidationオブジェクトをViewに渡す
 		$data["val"] = $val;
 
-		//ページネーションを設定するため、表示させれデータの全件数をcount関数で取得します
-		$total = count(Model_Mybbs::find("all"));
+		//itemカラムのGET値をmemcashe保存
+		switch (Input::get('item'))
+		{
+			case 1:
+				$item = 1;
+				$memcache->set('key', $item, MEMCACHE_COMPRESSED, 50);
+				break;
+			case 2:
+				$item = 2;
+				$memcache->set('key', $item, MEMCACHE_COMPRESSED, 50);
+				break;
+			case 3:
+				$item = 3;
+				$memcache->set('key', $item, MEMCACHE_COMPRESSED, 50);
+				break;
+		}
 
+		//memcacheにデータが格納してあるか判定
+		if ($memcache->get('key'))
+		{
+			//itemカラムの件数をcount関数で取得します
+			$total = count(Model_Mybbs::find('all', array(
+					'where' => array(
+							'item' => $memcache->get('key'),
+					),
+			)));
 
-		//ページネーションの設定用変数を作成します。
-		$config = array(
-				"pagination_url" => "http://dev3.m-craft.com/matsui/mc_kadai/kadai_fuel/bbs/index",
-				"url_segment" => 3,	//セグメント指定(bbs/indexの次の階層にページ指定)※bbsはコントローラー
-				"per_page" => 10,	//1ページでの表示件数
-				"num_links" =>10,
-				"total_items" => $total,
-				"link_offset" => 1,
-		);
+			//ページネーションの設定用変数を作成します。
+			$config = array(
+					"pagination_url" => "http://dev3.m-craft.com/matsui/mc_kadai/kadai_fuel/bbs/index?item=" . $memcache->get('key'),	//本番
+					//"pagination_url" => "http://localhost/fuelphp/bbs/index?item=" . $memcache->get('key'),	//開発
+					"url_segment" => 3,	//セグメント指定(bbs/indexの次の階層である3番目にページ指定)※bbsはコントローラー
+					"per_page" => 5,	//1ページでの記事表示件数
+					"num_links" =>10,	//1ページでのページリンク表示数(※現在リンク中央設定のため、偶数指定時は+1)
+					"total_items" => $total,
+			);
 
+			// 'mypagination' という名前の pagination インスタンスを作る
+			$pagination = Pagination::forge('mypagination', $config);
+			//モデルからデータを取得
+			$data['posts'] = Model_Mybbs::find('all',array(
+							'order_by' => array(
+								'id' => 'desc'
+							),
+							'where' => array(
+								'item' => $memcache->get('key'),
+							),
+							'limit' => $pagination->per_page,
+							'offset' => $pagination->offset,
+					)
+			);
+			//memcacheを閉じる
+			$memcache->close();
+		}
+		else
+		{
+			//ページネーションを設定するため、表示させれデータの全件数をcount関数で取得します
+			$total = count(Model_Mybbs::find("all"));
 
-		// 'mypagination' という名前の pagination インスタンスを作る
-		$pagination = Pagination::forge('mypagination', $config);
-		//モデルからデータを取得
-		$data['posts'] = Model_Mybbs::find('all',array(
-						'order_by' => array(
-							'created_at' => 'desc'
-						),
-						'limit' => $pagination->per_page,
-						'offset' => $pagination->offset
-				)
-		);
+			//ページネーションの設定用変数を作成します。
+			$config = array(
+					"pagination_url" => "http://dev3.m-craft.com/matsui/mc_kadai/kadai_fuel/bbs/index",	//本番
+					//"pagination_url" => "http://localhost/fuelphp/bbs/index",	//開発
+					"url_segment" => 3,	//セグメント指定(bbs/indexの次の階層である3番目にページ指定)※bbsはコントローラー
+					"per_page" => 5,	//1ページでの記事表示件数
+					"num_links" =>10,	//1ページでのページリンク表示数(※現在リンク中央設定のため、偶数指定時は+1)
+					"total_items" => $total,
+			);
+
+			// 'mypagination' という名前の pagination インスタンスを作る
+			$pagination = Pagination::forge('mypagination', $config);
+			//モデルからデータを取得
+			$data['posts'] = Model_Mybbs::find('all',array(
+					'order_by' => array(
+							'id' => 'desc'
+					),
+					'limit' => $pagination->per_page,
+					'offset' => $pagination->offset,
+					)
+			);
+		}
 
 		return View::forge('bbs/index',$data);
 

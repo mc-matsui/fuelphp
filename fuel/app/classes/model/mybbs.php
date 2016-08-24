@@ -7,6 +7,7 @@ class Model_Mybbs extends \Orm\Model
 		'name',
 		'message',
 		'email',
+		'item',
 		'ip',
 		'created_at',
 		'updated_at',
