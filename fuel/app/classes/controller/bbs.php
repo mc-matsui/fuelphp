@@ -1,5 +1,6 @@
 <?php
 use Fuel\Core\Debug;
+use Fuel\Core\Input;
 class Controller_Bbs extends Controller
 {
 	public function action_index()
@@ -99,6 +100,9 @@ class Controller_Bbs extends Controller
 			}
 		}
 
+		//ValidationオブジェクトをViewに渡す
+		$data["val"] = $val;
+
 		/**
 		 *  redisの使用
 		 */
@@ -146,8 +150,11 @@ class Controller_Bbs extends Controller
 
 		foreach($ranking as $user => $score )
 		{
+			//各カテゴリの投稿件数を取得
+			$scoreData = $redis-> zScore( 'ranking', $user);
+			$score++;
 			//順位1位～3位を取得(総件数を取得するため「+inf」というキーワードを使用)
-			$data["itemCount"] .= ($redis->zCount('ranking', $score, '+inf'))."位：" . $user ." &nbsp;/&nbsp; ";
+			$data["itemCount"] .= ($redis->zCount('ranking', $score, '+inf')+1)."位：" . $user ."&nbsp;[" .$scoreData ."件]&nbsp;/&nbsp;";
 		}
 
 		/**
@@ -159,10 +166,13 @@ class Controller_Bbs extends Controller
 		$memcache->connect('localhost', 11211) or die ("接続できませんでした");
 		$version = $memcache->getVersion();
 		$data["mem_version"] = "memcached動作中！ / サーバのバージョン: ".$version;
-		//$memcache->close();
 
-		//ValidationオブジェクトをViewに渡す
-		$data["val"] = $val;
+		//ソートの解除リンクを押下した場合はmemcacheの値を削除する
+		if (Input::get('reset'))
+		{
+			$memcache->flush();
+			$memcache->close();
+		}
 
 		//itemカラムのGET値をmemcashe保存
 		switch (Input::get('item'))
